@@ -85,12 +85,17 @@ Locally you connect as yourself, and in Azure the App Service managed identity c
 
    ```bash
    dotnet user-secrets set "ConnectionStrings:DefaultConnection" \
-     "Server=tcp:<server>.database.windows.net,1433;Database=sqldb-saasdemo-dev;Authentication=Active Directory Default;Encrypt=True;" \
+     "Server=tcp:<server>.database.windows.net,1433;Database=sqldb-saasdemo-dev;Authentication=Active Directory Default;Encrypt=True;Connect Timeout=60;" \
      --project src/api/SaasDemo.Api
 
    # Optional: the Entra tenant id given to the seeded "demo" tenant (defaults to all zeros)
    dotnet user-secrets set "Dev:DemoEntraTenantId" "<entra-tenant-id>" --project src/api/SaasDemo.Api
    ```
+
+   **Why `Connect Timeout=60`:** `Active Directory Default` tries several credential sources in turn: environment,
+   managed identity, Visual Studio, then Azure CLI. On some machines the Visual Studio source hangs. With the default
+   15-second timeout, the connection then fails with *"A task was canceled"* (in `VisualStudioCredential`) before it
+   reaches your `az login`. A 60-second budget lets it fall through.
 
 4. Apply the migrations (`InitialCreate`, then `AddRowLevelSecurity`):
 
