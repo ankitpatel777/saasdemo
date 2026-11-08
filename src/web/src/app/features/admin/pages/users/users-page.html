@@ -1,0 +1,56 @@
+<h1>Users</h1>
+
+<p class="note" data-testid="roles-note">
+  <mat-icon aria-hidden="true">info</mat-icon>
+  <span>
+    Roles are managed in your organization's Microsoft Entra admin center
+    (<a href="https://entra.microsoft.com" target="_blank" rel="noopener noreferrer">entra.microsoft.com</a>).
+    Here you can deactivate or reactivate people's access to this app.
+  </span>
+</p>
+
+<mat-card appearance="outlined">
+  <mat-card-content>
+    <app-users-filters
+      [search]="searchText()"
+      [role]="role()"
+      [status]="status()"
+      (searchChange)="searchText.set($event)"
+      (roleChange)="onRole($event)"
+      (statusChange)="onStatus($event)"
+    />
+
+    @if (users.isLoading() && shown()) {
+      <mat-progress-bar mode="indeterminate" aria-label="Loading users" />
+    }
+
+    @if (users.error()) {
+      <app-error-state message="We couldn't load users." (retry)="users.reload()" />
+    } @else if (shown(); as result) {
+      @if (result.items.length) {
+        <app-users-table
+          [users]="result.items"
+          [sort]="sort()"
+          [direction]="dir()"
+          [currentUserId]="currentUserId()"
+          [busyId]="busyId()"
+          (sortChange)="onSort($event)"
+          (deactivate)="deactivate($event)"
+          (reactivate)="reactivate($event)"
+        />
+      } @else {
+        <app-empty-state message="No users match these filters." icon="person_search" />
+      }
+      <mat-paginator
+        [length]="result.totalCount"
+        [pageIndex]="page() - 1"
+        [pageSize]="pageSize()"
+        [pageSizeOptions]="[10, 25, 50]"
+        (page)="onPage($event)"
+        aria-label="Choose a page of users"
+      />
+    } @else {
+      <app-skeleton [lines]="6" [height]="40" />
+    }
+  </mat-card-content>
+</mat-card>

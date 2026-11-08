@@ -25,10 +25,29 @@ export const routes: Routes = [
   },
   {
     path: ':tenant/admin',
-    title: 'Admin',
     canActivate: [authGuard, tenantGuard, adminGuard],
-    loadComponent: () =>
-      import('./features/admin/pages/admin-dashboard/admin-dashboard').then((m) => m.AdminDashboard),
+    children: [
+      {
+        path: '',
+        title: 'Overview',
+        loadComponent: () => import('./features/admin/pages/overview/overview').then((m) => m.AdminOverview),
+      },
+      {
+        path: 'users',
+        title: 'Users',
+        loadComponent: () => import('./features/admin/pages/users/users-page').then((m) => m.UsersPage),
+      },
+      {
+        path: 'activity',
+        title: 'Activity',
+        loadComponent: () => import('./features/admin/pages/activity/activity-page').then((m) => m.ActivityPage),
+      },
+      {
+        path: 'settings',
+        title: 'Settings',
+        loadComponent: () => import('./features/admin/pages/settings/settings-page').then((m) => m.SettingsPage),
+      },
+    ],
   },
   {
     path: ':tenant/user',

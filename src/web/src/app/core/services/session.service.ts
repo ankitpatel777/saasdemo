@@ -66,6 +66,12 @@ export class SessionService {
     return this.pending;
   }
 
+  /** Reloads /me (e.g. after the organization was renamed), keeping the current values until it answers. */
+  refresh(): Promise<SessionStatus> {
+    this.pending = null;
+    return this.bootstrap();
+  }
+
   /** Where this user should be: their dashboard, or the page that explains why not. */
   homeUrl(): string {
     const me = this.meState();

@@ -1,0 +1,40 @@
+<h1>Overview</h1>
+@if (session.me(); as me) {
+  <p class="subtitle" data-testid="me">Welcome back, {{ me.displayName }}.</p>
+}
+
+<section aria-labelledby="summary-heading">
+  <h2 id="summary-heading" class="visually-hidden">Summary</h2>
+  @if (summary.isLoading()) {
+    <div class="stats"><app-skeleton [lines]="1" [height]="88" /><app-skeleton [lines]="1" [height]="88" /></div>
+  } @else if (summary.error()) {
+    <app-error-state message="We couldn't load the summary." (retry)="summary.reload()" />
+  } @else if (summary.value(); as s) {
+    <div class="stats" data-testid="summary">
+      <app-stat-card label="Total users" icon="group" [value]="s.totalUsers" />
+      <app-stat-card label="Active users" icon="how_to_reg" [value]="s.activeUsers" />
+      <app-stat-card label="Admins" icon="admin_panel_settings" [value]="s.admins" />
+      <app-stat-card label="Sign-ins (7 days)" icon="login" [value]="s.signInsLast7Days" />
+    </div>
+  }
+</section>
+
+<mat-card appearance="outlined" class="recent">
+  <mat-card-header>
+    <mat-card-title><h2>Recent activity</h2></mat-card-title>
+  </mat-card-header>
+  <mat-card-content>
+    @if (recent.isLoading()) {
+      <app-skeleton [lines]="5" />
+    } @else if (recent.error()) {
+      <app-error-state message="We couldn't load recent activity." (retry)="recent.reload()" />
+    } @else if (recent.value()?.items?.length) {
+      <app-activity-list [entries]="recent.value()!.items" />
+    } @else {
+      <app-empty-state message="No activity yet." icon="history" />
+    }
+  </mat-card-content>
+  <mat-card-actions align="end">
+    <a mat-button routerLink="activity">View all activity</a>
+  </mat-card-actions>
+</mat-card>

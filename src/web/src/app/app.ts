@@ -1,9 +1,9 @@
 import { Component } from '@angular/core';
 import { RouterOutlet } from '@angular/router';
-import { AppHeader } from './shared/components/app-header/app-header';
+import { AppShell } from './shared/layout/app-shell/app-shell';
 
 @Component({
-  imports: [RouterOutlet, AppHeader],
+  imports: [RouterOutlet, AppShell],
   selector: 'app-root',
   styleUrl: './app.scss',
   templateUrl: './app.html',

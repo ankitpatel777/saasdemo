@@ -2,7 +2,11 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using SaasDemo.Application.Audit;
+using SaasDemo.Application.Dashboard;
 using SaasDemo.Application.Tenancy;
+using SaasDemo.Infrastructure.Audit;
+using SaasDemo.Infrastructure.Dashboard;
 using SaasDemo.Application.Users;
 using SaasDemo.Infrastructure.Persistence;
 using SaasDemo.Infrastructure.Tenancy;
@@ -34,9 +38,16 @@ public static class DependencyInjection
             .AddInterceptors(sp.GetRequiredService<TenantSessionContextInterceptor>()));
 
         services.AddScoped<EfTenantStore>();
-        services.AddScoped<ITenantStore, CachedTenantStore>();
+        services.AddScoped<CachedTenantStore>(); // also used directly, to evict after a rename
+        services.AddScoped<ITenantStore>(sp => sp.GetRequiredService<CachedTenantStore>());
+        services.AddScoped<ITenantSettingsService, TenantSettingsService>();
         services.AddScoped<IUserReadService, UserReadService>();
         services.AddScoped<IUserProvisioningService, UserProvisioningService>();
+        services.AddScoped<IUserAccessService, UserAccessService>();
+        services.AddScoped<IUserAdministrationService, UserAdministrationService>();
+        services.AddScoped<IAuditLog, AuditLog>();
+        services.AddScoped<IAuditReadService, AuditReadService>();
+        services.AddScoped<IDashboardService, DashboardService>();
 
         services.AddHealthChecks().AddDbContextCheck<AppDbContext>("database", tags: [ReadyTag]);
 
