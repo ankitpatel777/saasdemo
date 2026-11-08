@@ -19,6 +19,13 @@ public sealed class CachedTenantStore(EfTenantStore inner, IMemoryCache cache) :
     public Task<Tenant?> GetByEntraTenantIdAsync(Guid entraTenantId, CancellationToken ct) =>
         GetOrLoadAsync($"tenant-by-entra:{entraTenantId}", () => inner.GetByEntraTenantIdAsync(entraTenantId, ct));
 
+    /// <summary>Drops both cached lookups of a tenant after it changes, so the next request re-reads it.</summary>
+    public void Evict(Tenant tenant)
+    {
+        cache.Remove($"tenant-by-slug:{tenant.Slug.ToLowerInvariant()}");
+        cache.Remove($"tenant-by-entra:{tenant.EntraTenantId}");
+    }
+
     private async Task<Tenant?> GetOrLoadAsync(string key, Func<Task<Tenant?>> load)
     {
         if (cache.TryGetValue(key, out Tenant? cached))

@@ -9,6 +9,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using SaasDemo.Application.Tenancy;
+using SaasDemo.Domain.Audit;
 using SaasDemo.Domain.Tenants;
 using SaasDemo.Domain.Users;
 using SaasDemo.Infrastructure.Persistence;
@@ -29,6 +30,15 @@ public sealed class SaasDemoApiFactory : WebApplicationFactory<Program>
     public static readonly Guid OtherTenantId = Guid.NewGuid();
     public static readonly Guid OtherEntraTenantId = Guid.NewGuid();
     public static readonly Guid PausedEntraTenantId = Guid.NewGuid();
+
+    // Seeded users, by their Entra object id (oid), so tests can call the API as them.
+    public static readonly Guid AliceObjectId = Guid.NewGuid(); // demo Admin
+    public static readonly Guid BobObjectId = Guid.NewGuid();   // demo User
+    public static readonly Guid EveObjectId = Guid.NewGuid();   // other Admin
+
+    public static TestUser Alice => new(DemoEntraTenantId, AliceObjectId, ["Admin"], Name: "Alice", Email: "alice@demo.example");
+    public static TestUser Bob => new(DemoEntraTenantId, BobObjectId, ["User"], Name: "Bob", Email: "bob@demo.example");
+    public static TestUser Eve => new(OtherEntraTenantId, EveObjectId, ["Admin"], Name: "Eve", Email: "eve@other.example");
 
     private readonly SqliteConnection _connection = new("DataSource=:memory:");
     private readonly DbContextOptions<AppDbContext> _dbOptions;
@@ -108,16 +118,50 @@ public sealed class SaasDemoApiFactory : WebApplicationFactory<Program>
         }
 
         // Users are tenant-owned: each tenant's users are written with that tenant resolved.
-        AddUser(DemoTenantId, "alice@demo.example", UserRole.Admin);
-        AddUser(DemoTenantId, "bob@demo.example", UserRole.User);
-        AddUser(OtherTenantId, "eve@other.example", UserRole.Admin);
+        AddUser(DemoTenantId, "alice@demo.example", "Alice", UserRole.Admin, AliceObjectId);
+        AddUser(DemoTenantId, "bob@demo.example", "Bob", UserRole.User, BobObjectId);
+        AddUser(OtherTenantId, "eve@other.example", "Eve", UserRole.Admin, EveObjectId);
     }
 
-    private void AddUser(Guid tenantId, string email, UserRole role)
+    /// <summary>Adds a provisioned user straight to the database. Returns it (Id and EntraObjectId set).</summary>
+    public AppUser AddUser(
+        Guid tenantId,
+        string email,
+        string displayName,
+        UserRole role,
+        Guid? entraObjectId = null,
+        bool isActive = true,
+        DateTime? createdAtUtc = null,
+        DateTime? lastLoginAtUtc = null)
     {
         using var db = new AppDbContext(_dbOptions, new FixedTenantContext(tenantId));
-        db.Users.Add(new AppUser(Guid.NewGuid(), tenantId, Guid.NewGuid(), email, email, role, DateTime.UtcNow));
+        var user = new AppUser(Guid.NewGuid(), tenantId, entraObjectId ?? Guid.NewGuid(), email, displayName, role,
+            createdAtUtc ?? DateTime.UtcNow);
+        if (lastLoginAtUtc is { } lastLogin)
+        {
+            user.RecordLogin(lastLogin);
+        }
+        if (!isActive)
+        {
+            user.Deactivate();
+        }
+        db.Users.Add(user);
         db.SaveChanges();
+        return user;
+    }
+
+    /// <summary>Reads one tenant's audit log straight from the database, newest first.</summary>
+    public List<AuditEvent> GetAuditEvents(Guid tenantId)
+    {
+        using var db = new AppDbContext(_dbOptions, new FixedTenantContext(tenantId));
+        return db.AuditEvents.AsNoTracking().AsEnumerable().OrderByDescending(e => e.OccurredAtUtc).ToList();
+    }
+
+    /// <summary>Reads a tenant row (tenants are not tenant-owned).</summary>
+    public Tenant GetTenant(Guid tenantId)
+    {
+        using var db = new AppDbContext(_dbOptions, new FixedTenantContext(null));
+        return db.Tenants.AsNoTracking().Single(t => t.Id == tenantId);
     }
 
     private sealed class FixedTenantContext(Guid? tenantId) : ITenantContext
