@@ -1,3 +1,14 @@
 <h1>Sign in</h1>
-<p>Authentication will be added in a later feature.</p>
+
+@if (session.status() === 'loading') {
+  <p data-testid="login-loading">Signing you in…</p>
+} @else {
+  @if (session.errorMessage(); as error) {
+    <p role="alert" data-testid="login-error">{{ error }}</p>
+  }
+  <button type="button" data-testid="sign-in" [disabled]="redirecting()" (click)="signIn()">
+    {{ redirecting() ? 'Redirecting to Microsoft…' : 'Sign in with Microsoft' }}
+  </button>
+}
+
 <p data-testid="api-status">API status: {{ apiStatus() }}</p>

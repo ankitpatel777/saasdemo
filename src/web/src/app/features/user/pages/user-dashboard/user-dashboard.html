@@ -1,3 +1,8 @@
 <h1>User dashboard</h1>
 <p>Tenant: {{ tenant() }}</p>
+
+@if (session.me(); as me) {
+  <p data-testid="me">Signed in as {{ me.displayName }} ({{ me.email }}), {{ me.role }} of {{ me.tenant.name }}</p>
+}
+
 <app-tenant-info />
