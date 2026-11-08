@@ -1,8 +1,10 @@
 import { Component, input } from '@angular/core';
+import { TenantInfoCard } from '../../../../shared/components/tenant-info/tenant-info';
 
 @Component({
   selector: 'app-admin-dashboard',
   styleUrl: './admin-dashboard.scss',
+  imports: [TenantInfoCard],
   templateUrl: './admin-dashboard.html',
 })
 export class AdminDashboard {
