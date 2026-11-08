@@ -72,6 +72,65 @@ npm start          # ng serve on http://localhost:4200
 
 Open http://localhost:4200/login. You should see **API status: ok**.
 
+## Database
+
+The API uses EF Core 9 with Azure SQL (`sqldb-saasdemo-dev`), with **Entra-only, passwordless** authentication.
+Locally you connect as yourself, and in Azure the App Service managed identity connects. No password exists anywhere.
+
+### First-time setup
+
+1. Sign in so `Active Directory Default` can find your identity: `az login` (or sign in to Visual Studio).
+2. Make sure your public IP is allowed in the Azure SQL server firewall.
+3. Store the connection string in user secrets. They live outside the repo, so never put it in `appsettings*.json`:
+
+   ```bash
+   dotnet user-secrets set "ConnectionStrings:DefaultConnection" \
+     "Server=tcp:<server>.database.windows.net,1433;Database=sqldb-saasdemo-dev;Authentication=Active Directory Default;Encrypt=True;" \
+     --project src/api/SaasDemo.Api
+
+   # Optional: the Entra tenant id given to the seeded "demo" tenant (defaults to all zeros)
+   dotnet user-secrets set "Dev:DemoEntraTenantId" "<entra-tenant-id>" --project src/api/SaasDemo.Api
+   ```
+
+4. Apply the migrations (`InitialCreate`, then `AddRowLevelSecurity`):
+
+   ```bash
+   dotnet tool install --global dotnet-ef   # once
+   dotnet ef database update --project src/api/SaasDemo.Infrastructure --startup-project src/api/SaasDemo.Api
+   ```
+
+5. Run the API. In Development, a seeder creates the `demo` tenant if it is missing. Then check:
+   - https://localhost:7294/api/health/ready should return `Healthy`. This checks the database, while `/api/health` is liveness only.
+   - https://localhost:7294/api/demo/info and https://localhost:7294/api/demo/users should work. Both are Development-only.
+
+New migration: `dotnet ef migrations add <Name> --project src/api/SaasDemo.Infrastructure --startup-project src/api/SaasDemo.Api --output-dir Persistence/Migrations`.
+
+In Azure, the connection string comes from the App Service setting `ConnectionStrings__DefaultConnection` (a Key Vault reference).
+
+### How tenant isolation works
+
+Tenant-owned tables (those whose entity implements `ITenantOwned`, today only `Users`) are protected twice:
+
+1. **EF Core (app layer).** A global query filter adds `WHERE TenantId = <current tenant>` to every query.
+   `SaveChanges` stamps the current tenant on new rows. It throws if a row belongs to another tenant or no tenant is resolved.
+2. **SQL Row-Level Security (database layer).** On every connection open, `TenantSessionContextInterceptor`
+   runs `sp_set_session_context 'TenantId'` (read-only). The `Security.TenantIsolationPolicy` uses this value:
+   - Its filter predicate hides other tenants' rows.
+   - Its block predicates reject inserts and updates into another tenant.
+
+   This still holds if application code bypasses EF filters (e.g. `IgnoreQueryFilters()` or raw SQL).
+   - `db_owner` bypasses the policy so the admin can inspect data. **The app identity must never be `db_owner`.**
+   - Pooled connections are safe: `sp_reset_connection` clears the session context when a connection is reused.
+
+The automated tests run on SQLite, which has no RLS. To verify RLS for real on Azure SQL, run
+[`docs/rls-verification.sql`](docs/rls-verification.sql).
+
+### Serverless: the first call can be slow
+
+The dev database is serverless and auto-pauses when idle. The first request after a pause wakes it up, which can take up to about a minute.
+EF retries transient failures for up to about 60 seconds, with a 60-second command timeout. So the first call (or `/api/health/ready`) may be slow
+rather than fail, and later calls are fast.
+
 ## Build and test
 
 ```bash
