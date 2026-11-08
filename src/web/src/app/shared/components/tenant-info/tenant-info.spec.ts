@@ -4,24 +4,26 @@ import { TestBed } from '@angular/core/testing';
 import { provideRouter } from '@angular/router';
 import { RouterTestingHarness } from '@angular/router/testing';
 import { environment } from '../../../../environments/environment';
-import { TenantInfoCard } from './tenant-info';
+import { TENANT_INFO_ENABLED, TenantInfoCard } from './tenant-info';
 
-describe('TenantInfoCard', () => {
+async function setup(enabled: boolean) {
+  TestBed.configureTestingModule({
+    providers: [
+      provideRouter([{ path: ':tenant/admin', component: TenantInfoCard }]),
+      provideHttpClient(),
+      provideHttpClientTesting(),
+      { provide: TENANT_INFO_ENABLED, useValue: enabled },
+    ],
+  });
+  const harness = await RouterTestingHarness.create();
+  return { harness, http: TestBed.inject(HttpTestingController) };
+}
+
+describe('TenantInfoCard (development)', () => {
   let harness: RouterTestingHarness;
   let http: HttpTestingController;
 
-  beforeEach(async () => {
-    TestBed.configureTestingModule({
-      providers: [
-        provideRouter([{ path: ':tenant/admin', component: TenantInfoCard }]),
-        provideHttpClient(),
-        provideHttpClientTesting(),
-      ],
-    });
-    harness = await RouterTestingHarness.create();
-    http = TestBed.inject(HttpTestingController);
-  });
-
+  beforeEach(async () => ({ harness, http } = await setup(true)));
   afterEach(() => http.verify());
 
   it('shows the tenant name', async () => {
@@ -42,5 +44,18 @@ describe('TenantInfoCard', () => {
     await harness.fixture.whenStable();
 
     expect(harness.routeNativeElement?.textContent).toContain('Client not found');
+  });
+});
+
+describe('TenantInfoCard (production)', () => {
+  it('renders nothing and makes no request', async () => {
+    const { harness, http } = await setup(false);
+
+    await harness.navigateByUrl('/demo/admin');
+    await harness.fixture.whenStable();
+
+    http.expectNone(() => true);
+    http.verify();
+    expect(harness.routeNativeElement?.textContent?.trim()).toBe('');
   });
 });
