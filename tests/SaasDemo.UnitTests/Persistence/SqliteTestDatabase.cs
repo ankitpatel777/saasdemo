@@ -30,12 +30,13 @@ internal sealed class SqliteTestDatabase : IDisposable
         using var db = CreateContext(tenantId: null);
         db.Database.EnsureCreated();
         db.Tenants.AddRange(
-            new Tenant(TenantA, "tenant-a", "Tenant A", Guid.NewGuid(), true, DateTime.UtcNow),
+            new Tenant(TenantA, "tenant-a", "Tenant A", TenantAEntraId, true, DateTime.UtcNow),
             new Tenant(TenantB, "tenant-b", "Tenant B", Guid.NewGuid(), true, DateTime.UtcNow));
         db.SaveChanges();
     }
 
     public static Guid TenantA { get; } = Guid.NewGuid();
+    public static Guid TenantAEntraId { get; } = Guid.NewGuid();
     public static Guid TenantB { get; } = Guid.NewGuid();
 
     public AppDbContext CreateContext(Guid? tenantId) =>
