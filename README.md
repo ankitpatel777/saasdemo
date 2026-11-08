@@ -282,6 +282,65 @@ dotnet test
 cd src/web && npm run build && npm test
 ```
 
+## CI/CD
+
+Two GitHub Actions workflows, with **no secrets** anywhere: Azure trusts GitHub's OIDC token instead.
+
+```text
+ pull_request ──► ci.yml ──► CI / api  (restore, build -warnaserror, test + TRX + coverage)
+                         └─► CI / web  (npm ci, vitest single run, production build)
+
+ push to main ──► deploy.yml
+                    build ──► artifacts: api, efbundle, web
+                      │
+                      ▼
+                    deploy  [environment: production, waits for reviewer approval]
+                      1. azure/login (OIDC)
+                      2. add SQL firewall rule gh-<run_id> ─► run efbundle ─► remove rule (always)
+                      3. App Service  ◄── api
+                      4. Static Web Apps ◄── web (token fetched at runtime)
+                      5. smoke test /api/health and /api/health/ready
+```
+
+### How OIDC works here
+
+1. The `deploy` job has `permissions: id-token: write`, so it can ask GitHub for a short-lived signed JWT.
+   Its `sub` (subject) claim is `repo:<owner>/<repo>:environment:production`.
+2. `azure/login` sends that JWT to Entra ID and asks for a token for the deploy identity (`vars.AZURE_CLIENT_ID`).
+3. Entra checks the signature (GitHub's public keys), the issuer, the audience (`api://AzureADTokenExchange`)
+   and that `sub` matches the identity's **federated credential** exactly. Only then does it issue an Azure token.
+4. The Azure CLI uses that token for about an hour. Nothing long-lived is stored in GitHub.
+
+`vars.*` hold identifiers (client, tenant and subscription IDs, resource names). They are not secrets.
+
+### Approval gate
+
+The `production` environment has a required reviewer. The deploy job pauses until someone approves it.
+The federated credential only accepts the `environment:production` subject, so no other job, branch or
+workflow can sign in to Azure, even if someone edits a workflow in a PR.
+
+### Database migrations
+
+- `build` creates a self-contained linux-x64 **EF Core migrations bundle**. `dotnet-ef` is pinned in
+  `.config/dotnet-tools.json`.
+- `deploy` opens a firewall rule only for the runner's IP and runs the bundle with
+  `Authentication=Active Directory Default`. The connection uses the Azure CLI login, and the deploy
+  identity is a database user with ddladmin/datareader/datawriter.
+- If the first attempt fails, the bundle is retried once after 60 s, because a paused serverless database
+  can take up to a minute to resume.
+- The firewall rule is removed in an `if: always()` step.
+- A bundle only applies migrations missing from `__EFMigrationsHistory`, so re-running it is safe.
+- The app itself never migrates at startup. Its managed identity only needs read and write access.
+
+### Re-running
+
+- **CI:** use "Re-run jobs" on the PR, or run the workflow manually (`workflow_dispatch`).
+- **Deploy:** Actions → Deploy → "Run workflow" on `main` (or "Re-run all jobs"). Approval is required again.
+  Runs are serialized by `concurrency: deploy-production` and are never cancelled midway.
+- **Leftover firewall rule:** if a cancelled run left one, delete `gh-<run_id>` in the SQL server's
+  Networking blade.
+- Make `CI / api` and `CI / web` required status checks in the branch protection for `main`.
+
 ## Configuration
 
 Committed config files contain **placeholders only**, because this repo is public.
