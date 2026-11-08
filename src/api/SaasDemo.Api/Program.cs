@@ -1,3 +1,4 @@
+using SaasDemo.Api.Endpoints;
 using SaasDemo.Api.Tenancy;
 using SaasDemo.Application.Tenancy;
 using SaasDemo.Infrastructure;
@@ -39,11 +40,18 @@ if (app.Environment.IsDevelopment())
 
 app.UseHttpsRedirection();
 app.UseCors("spa");
-// TODO(step 7.4): app.UseAuthentication() goes here, before tenant resolution, so the tid check can run.
+// TODO(step 7.4): add app.UseAuthentication() here, before tenant resolution, so the middleware
+// can verify validated JWT tid == ITenantContext.EntraTenantId (reject missing/mismatched with 403).
 app.UseMiddleware<TenantResolutionMiddleware>();
 app.UseAuthorization();
 
 app.MapControllers();
+
+// Anonymous tenant diagnostics are Development-only; elsewhere the route does not exist.
+if (app.Environment.IsDevelopment())
+{
+    app.MapTenantInfoEndpoint();
+}
 
 app.Run();
 

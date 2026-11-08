@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.Mvc.Testing;
 
 namespace SaasDemo.IntegrationTests;
 
+/// <summary>Runs the API as Development (the WebApplicationFactory default).</summary>
 public class TenantResolutionTests(WebApplicationFactory<Program> factory)
     : IClassFixture<WebApplicationFactory<Program>>
 {
@@ -22,6 +23,14 @@ public class TenantResolutionTests(WebApplicationFactory<Program> factory)
         body!.Slug.Should().Be("demo");
         body.Name.Should().Be("Demo Client");
         body.TenantId.Should().NotBeEmpty();
+    }
+
+    [Fact]
+    public async Task KnownTenant_DoesNotExposeEntraTenantId()
+    {
+        var json = await _client.GetStringAsync("/api/demo/info");
+
+        json.Should().NotContainEquivalentOf("entraTenantId");
     }
 
     [Fact]

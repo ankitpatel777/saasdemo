@@ -7,13 +7,27 @@ namespace SaasDemo.Api.Tenancy;
 /// Resolves the tenant for /api/{tenant}/... requests and fills <see cref="TenantContext"/>.
 /// Other paths (/api/health, /openapi, /scalar, SPA paths) pass straight through.
 /// </summary>
-public sealed class TenantResolutionMiddleware(RequestDelegate next, ILogger<TenantResolutionMiddleware> logger)
+public sealed class TenantResolutionMiddleware(
+    RequestDelegate next,
+    IHostEnvironment environment,
+    ILogger<TenantResolutionMiddleware> logger)
 {
     public async Task InvokeAsync(HttpContext context, TenantResolver resolver, TenantContext tenantContext)
     {
         if (!TenantRoutePath.TryGetSlug(context.Request.Path, out var slug))
         {
             await next(context);
+            return;
+        }
+
+        // Fail-safe until step 7.4 adds JWT authentication: outside Development, tenant-scoped routes
+        // are closed to unauthenticated callers. It runs BEFORE the lookup so anonymous callers can't
+        // tell real tenants from fake ones by the 400/404 difference.
+        if (!environment.IsDevelopment() && context.User.Identity?.IsAuthenticated != true)
+        {
+            await Results.Problem(
+                statusCode: StatusCodes.Status401Unauthorized,
+                title: "Authentication required").ExecuteAsync(context);
             return;
         }
 
@@ -38,9 +52,8 @@ public sealed class TenantResolutionMiddleware(RequestDelegate next, ILogger<Ten
 
         tenantContext.Set(result.Tenant!);
 
-        // TODO(step 7.4): once authentication is added (UseAuthentication must run before this
-        // middleware), verify the JWT 'tid' claim equals tenantContext.EntraTenantId and return
-        // 403 ProblemDetails on mismatch. Until then, the tenant is resolved but NOT authorized.
+        // TODO(step 7.4): verify validated JWT tid == ITenantContext.EntraTenantId,
+        // reject missing/mismatched with 403.
 
         if (context.Features.Get<RequestTelemetry>() is { } telemetry)
         {
