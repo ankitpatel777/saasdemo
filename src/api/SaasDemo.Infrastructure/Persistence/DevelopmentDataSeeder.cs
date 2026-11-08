@@ -9,7 +9,7 @@ namespace SaasDemo.Infrastructure.Persistence;
 
 /// <summary>
 /// Development only (registered in Program.cs when the environment is Development): makes sure the
-/// "demo" tenant exists. Its Entra tenant id comes from "Dev:DemoEntraTenantId" (user secrets),
+/// "demo" tenant exists and is linked to the Entra tenant in "Dev:DemoEntraTenantId" (user secrets),
 /// defaulting to an all-zero placeholder, so no real id is ever committed.
 /// It does not run migrations: apply them with "dotnet ef database update".
 /// </summary>
@@ -28,12 +28,29 @@ public sealed class DevelopmentDataSeeder(
             await using var scope = scopeFactory.CreateAsyncScope();
             var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
 
-            if (await db.Tenants.AnyAsync(t => t.Slug == DemoSlug, cancellationToken))
+            if (string.IsNullOrWhiteSpace(configuration["Dev:DemoEntraTenantId"]))
             {
-                return;
+                logger.LogWarning(
+                    "Dev:DemoEntraTenantId is not configured; the demo tenant is linked to the all-zero placeholder, " +
+                    "so real tokens will get 403. Set it with: dotnet user-secrets set \"Dev:DemoEntraTenantId\" \"<entra-tenant-id>\" --project src/api/SaasDemo.Api");
             }
 
             var entraTenantId = configuration.GetValue("Dev:DemoEntraTenantId", Guid.Empty);
+            var demo = await db.Tenants.SingleOrDefaultAsync(t => t.Slug == DemoSlug, cancellationToken);
+
+            if (demo is not null)
+            {
+                // Keep "demo" linked to the developer's directory, so tokens from it pass the tid check.
+                if (demo.EntraTenantId != entraTenantId)
+                {
+                    demo.LinkEntraTenant(entraTenantId);
+                    await db.SaveChangesAsync(cancellationToken);
+                    logger.LogInformation("Re-linked development tenant {Slug} to the configured Entra tenant", DemoSlug);
+                }
+
+                return;
+            }
+
             db.Tenants.Add(new Tenant(
                 Guid.NewGuid(), DemoSlug, "Demo Client", entraTenantId, isActive: true,
                 timeProvider.GetUtcNow().UtcDateTime));

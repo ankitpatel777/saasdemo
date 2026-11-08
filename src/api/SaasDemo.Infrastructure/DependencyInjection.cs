@@ -36,6 +36,7 @@ public static class DependencyInjection
         services.AddScoped<EfTenantStore>();
         services.AddScoped<ITenantStore, CachedTenantStore>();
         services.AddScoped<IUserReadService, UserReadService>();
+        services.AddScoped<IUserProvisioningService, UserProvisioningService>();
 
         services.AddHealthChecks().AddDbContextCheck<AppDbContext>("database", tags: [ReadyTag]);
 

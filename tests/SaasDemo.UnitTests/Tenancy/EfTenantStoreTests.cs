@@ -34,6 +34,30 @@ public sealed class EfTenantStoreTests : IDisposable
     }
 
     [Fact]
+    public async Task GetByEntraTenantIdAsync_FindsTheLinkedTenant()
+    {
+        await using var db = _database.CreateContext(tenantId: null);
+        var store = new EfTenantStore(db);
+
+        (await store.GetByEntraTenantIdAsync(SqliteTestDatabase.TenantAEntraId, CancellationToken.None))!
+            .Slug.Should().Be("tenant-a");
+        (await store.GetByEntraTenantIdAsync(Guid.NewGuid(), CancellationToken.None)).Should().BeNull();
+    }
+
+    [Fact]
+    public async Task CachedStore_CachesLookupsByEntraTenantId()
+    {
+        using var cache = new MemoryCache(new MemoryCacheOptions());
+        await using var db = _database.CreateContext(tenantId: null);
+        var store = new CachedTenantStore(new EfTenantStore(db), cache);
+
+        var first = await store.GetByEntraTenantIdAsync(SqliteTestDatabase.TenantAEntraId, CancellationToken.None);
+        var second = await store.GetByEntraTenantIdAsync(SqliteTestDatabase.TenantAEntraId, CancellationToken.None);
+
+        second.Should().BeSameAs(first);
+    }
+
+    [Fact]
     public async Task CachedStore_ServesRepeatLookupsFromCache()
     {
         using var cache = new MemoryCache(new MemoryCacheOptions());

@@ -1,9 +1,11 @@
+using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using SaasDemo.Application.Tenancy;
@@ -14,25 +16,39 @@ using SaasDemo.Infrastructure.Persistence;
 namespace SaasDemo.IntegrationTests;
 
 /// <summary>
-/// Runs the real API with AppDbContext on in-memory SQLite instead of Azure SQL.
-/// The schema and data are created BEFORE the host starts, so the Development seeder finds "demo"
-/// and does nothing. SQLite proves the EF query filter end to end; RLS needs Azure SQL
-/// (see docs/rls-verification.sql).
+/// Runs the real API with:
+/// - AppDbContext on in-memory SQLite instead of Azure SQL (schema and data created before the host starts);
+/// - a test authentication scheme instead of Entra JWT validation (see <see cref="TestAuthHandler"/>).
+/// Everything else (tenant resolution, policies, endpoints) is the production code.
+/// SQLite proves the EF query filter end to end; RLS needs Azure SQL (see docs/rls-verification.sql).
 /// </summary>
 public sealed class SaasDemoApiFactory : WebApplicationFactory<Program>
 {
     public static readonly Guid DemoTenantId = Guid.NewGuid();
+    public static readonly Guid DemoEntraTenantId = Guid.NewGuid();
     public static readonly Guid OtherTenantId = Guid.NewGuid();
+    public static readonly Guid OtherEntraTenantId = Guid.NewGuid();
+    public static readonly Guid PausedEntraTenantId = Guid.NewGuid();
 
     private readonly SqliteConnection _connection = new("DataSource=:memory:");
+    private readonly DbContextOptions<AppDbContext> _dbOptions;
 
     public SaasDemoApiFactory()
     {
         _connection.Open();
+        _dbOptions = new DbContextOptionsBuilder<AppDbContext>().UseSqlite(_connection).Options;
         Seed();
     }
 
-    protected override void ConfigureWebHost(IWebHostBuilder builder) =>
+    protected override void ConfigureWebHost(IWebHostBuilder builder)
+    {
+        // Pin the demo tenant's directory: otherwise the Development seeder would re-link "demo" to
+        // whatever Dev:DemoEntraTenantId is in the developer's user secrets.
+        builder.ConfigureAppConfiguration(config => config.AddInMemoryCollection(new Dictionary<string, string?>
+        {
+            ["Dev:DemoEntraTenantId"] = DemoEntraTenantId.ToString(),
+        }));
+
         builder.ConfigureTestServices(services =>
         {
             // EF Core 9 keeps provider setup in IDbContextOptionsConfiguration<T>; remove it along with
@@ -40,7 +56,33 @@ public sealed class SaasDemoApiFactory : WebApplicationFactory<Program>
             services.RemoveAll<DbContextOptions<AppDbContext>>();
             services.RemoveAll<IDbContextOptionsConfiguration<AppDbContext>>();
             services.AddDbContext<AppDbContext>(options => options.UseSqlite(_connection));
+
+            services.AddAuthentication()
+                .AddScheme<AuthenticationSchemeOptions, TestAuthHandler>(TestAuthHandler.SchemeName, _ => { });
+            services.PostConfigure<AuthenticationOptions>(options =>
+            {
+                options.DefaultScheme = TestAuthHandler.SchemeName;
+                options.DefaultAuthenticateScheme = TestAuthHandler.SchemeName;
+                options.DefaultChallengeScheme = TestAuthHandler.SchemeName;
+                options.DefaultForbidScheme = TestAuthHandler.SchemeName;
+            });
         });
+    }
+
+    /// <summary>Reads users of one tenant straight from the database (bypassing the API).</summary>
+    public List<AppUser> GetUsers(Guid tenantId)
+    {
+        using var db = new AppDbContext(_dbOptions, new FixedTenantContext(tenantId));
+        return db.Users.AsNoTracking().ToList();
+    }
+
+    /// <summary>Deactivates a user directly in the database, as an organization admin would.</summary>
+    public void DeactivateUser(Guid tenantId, Guid entraObjectId)
+    {
+        using var db = new AppDbContext(_dbOptions, new FixedTenantContext(tenantId));
+        db.Users.Single(u => u.EntraObjectId == entraObjectId).Deactivate();
+        db.SaveChanges();
+    }
 
     protected override void Dispose(bool disposing)
     {
@@ -54,27 +96,26 @@ public sealed class SaasDemoApiFactory : WebApplicationFactory<Program>
     private void Seed()
     {
         var now = DateTime.UtcNow;
-        var options = new DbContextOptionsBuilder<AppDbContext>().UseSqlite(_connection).Options;
 
-        using (var db = new AppDbContext(options, new FixedTenantContext(null)))
+        using (var db = new AppDbContext(_dbOptions, new FixedTenantContext(null)))
         {
             db.Database.EnsureCreated();
             db.Tenants.AddRange(
-                new Tenant(DemoTenantId, "demo", "Demo Client", Guid.Empty, true, now),
-                new Tenant(OtherTenantId, "other", "Other Client", Guid.NewGuid(), true, now),
-                new Tenant(Guid.NewGuid(), "paused", "Paused Client", Guid.NewGuid(), false, now));
+                new Tenant(DemoTenantId, "demo", "Demo Client", DemoEntraTenantId, true, now),
+                new Tenant(OtherTenantId, "other", "Other Client", OtherEntraTenantId, true, now),
+                new Tenant(Guid.NewGuid(), "paused", "Paused Client", PausedEntraTenantId, false, now));
             db.SaveChanges();
         }
 
         // Users are tenant-owned: each tenant's users are written with that tenant resolved.
-        AddUser(options, DemoTenantId, "alice@demo.example", UserRole.Admin);
-        AddUser(options, DemoTenantId, "bob@demo.example", UserRole.User);
-        AddUser(options, OtherTenantId, "eve@other.example", UserRole.Admin);
+        AddUser(DemoTenantId, "alice@demo.example", UserRole.Admin);
+        AddUser(DemoTenantId, "bob@demo.example", UserRole.User);
+        AddUser(OtherTenantId, "eve@other.example", UserRole.Admin);
     }
 
-    private static void AddUser(DbContextOptions<AppDbContext> options, Guid tenantId, string email, UserRole role)
+    private void AddUser(Guid tenantId, string email, UserRole role)
     {
-        using var db = new AppDbContext(options, new FixedTenantContext(tenantId));
+        using var db = new AppDbContext(_dbOptions, new FixedTenantContext(tenantId));
         db.Users.Add(new AppUser(Guid.NewGuid(), tenantId, Guid.NewGuid(), email, email, role, DateTime.UtcNow));
         db.SaveChanges();
     }
