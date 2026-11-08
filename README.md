@@ -106,7 +106,7 @@ Locally you connect as yourself, and in Azure the App Service managed identity c
 
 5. Run the API. In Development, a seeder creates the `demo` tenant if it is missing. Then check:
    - https://localhost:7294/api/health/ready should return `Healthy`. This checks the database, while `/api/health` is liveness only.
-   - https://localhost:7294/api/demo/info and https://localhost:7294/api/demo/users should work. Both are Development-only.
+   - `/api/demo/info`, `/api/demo/me` and `/api/demo/users` need an access token: see [Authentication](#authentication).
 
 New migration: `dotnet ef migrations add <Name> --project src/api/SaasDemo.Infrastructure --startup-project src/api/SaasDemo.Api --output-dir Persistence/Migrations`.
 
@@ -135,6 +135,84 @@ The automated tests run on SQLite, which has no RLS. To verify RLS for real on A
 The dev database is serverless and auto-pauses when idle. The first request after a pause wakes it up, which can take up to about a minute.
 EF retries transient failures for up to about 60 seconds, with a 60-second command timeout. So the first call (or `/api/health/ready`) may be slow
 rather than fail, and later calls are fast.
+
+## Authentication
+
+The API accepts **Entra ID v2 access tokens** (Microsoft.Identity.Web). The app registration is multi-tenant, so a user
+from *any* Entra organization can get a valid token. Signing in proves who you are, not that you belong to a client.
+Every tenant route therefore also checks that the token's directory (`tid`) owns the tenant in the URL.
+
+### Request flow
+
+```text
+GET /api/demo/users   Authorization: Bearer eyJ...
+        │
+        ▼
+ UseCors ─► UseHttpsRedirection
+        │
+        ▼
+ UseAuthentication ── no/invalid token ─────────────► (anonymous; continues)
+        │  valid: signature, issuer (any Entra tenant, must match tid), audience, expiry
+        ▼
+ TenantResolution ── anonymous ────────────────────► skipped (no lookups for anonymous callers)
+        │            bad slug ──► 400 · unknown/inactive ──► 404
+        │  ITenantContext = demo (EntraTenantId = <tid of the demo directory>)
+        ▼
+ UseAuthorization ── anonymous ────────────────────► 401 ProblemDetails
+        │            no access_as_user scope ──────► 403
+        │            token tid ≠ demo's EntraTenantId ► 403 (logged as a warning)
+        │            role missing for this endpoint ──► 403
+        ▼
+ Endpoint ── EF query filter + SQL RLS scope the data to demo
+```
+
+### Policies
+
+| Policy | Requires | Used by |
+|---|---|---|
+| Fallback | signed in + `access_as_user` scope | anything without its own policy |
+| `ApiScope` | signed in + `scp` contains `access_as_user` | `GET /api/platform/my-tenant` |
+| `TenantMember` | `ApiScope` + token `tid` = tenant's `EntraTenantId` | building block |
+| `TenantUser` | `TenantMember` + role `Admin` or `User` | `GET /api/{tenant}/info`, `GET /api/{tenant}/me` |
+| `TenantAdmin` | `TenantMember` + role `Admin` | `GET /api/{tenant}/users` |
+| anonymous | nothing | `/api/health`, `/api/health/ready`, OpenAPI/Scalar (Development) |
+
+401 and 403 responses are ProblemDetails. A 403's `detail` says what is missing, e.g. *"No role assigned in your organization."*
+
+`GET /api/{tenant}/me` provisions users **just in time**:
+- The first call creates the user, keyed by tenant and `oid`.
+- Every call re-syncs the role from the token's `roles` claim (Admin wins) and updates `LastLoginAtUtc`.
+
+### Configuration
+
+| Key | Value |
+|---|---|
+| `AzureAd:Instance` | `https://login.microsoftonline.com/` |
+| `AzureAd:TenantId` | `organizations` (multi-tenant) |
+| `AzureAd:ClientId` | API app registration client id (user secrets / App Service setting) |
+| `AzureAd:Audience` | `api://<clientId>` (both `<clientId>` and `api://<clientId>` are accepted) |
+| `Dev:DemoEntraTenantId` | Development only: your directory id, so the seeded `demo` tenant accepts your tokens |
+
+### Getting a test token
+
+You need these one-time setup steps:
+- **Authorize the Azure CLI:** on the API app registration, under *Expose an API*, add the Azure CLI
+  (`04b07795-8ddb-461a-bbee-02f9e1bf7b46`) as an authorized client application for `access_as_user`.
+- **Assign yourself a role:** in *Enterprise applications* → the API → *Users and groups*, assign yourself the `Admin` or `User` app role.
+
+```bash
+az login
+az account get-access-token --scope api://<clientId>/access_as_user --query accessToken -o tsv
+```
+
+Then paste the token into Scalar (https://localhost:7294/scalar/v1, *Authentication → Bearer*) or send it with curl:
+
+```bash
+curl -H "Authorization: Bearer <token>" https://localhost:7294/api/platform/my-tenant   # → {"slug":"demo",...}
+curl -H "Authorization: Bearer <token>" https://localhost:7294/api/demo/me
+```
+
+Tokens are credentials: don't paste them into issues, chats or logs. They expire after about an hour.
 
 ## Build and test
 
