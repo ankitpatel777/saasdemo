@@ -1,17 +1,29 @@
 import { TestBed } from '@angular/core/testing';
 import { provideRouter } from '@angular/router';
 import { App } from './app';
+import { SessionService } from './core/services/session.service';
+import { mockSession, testMe } from './core/testing/session-mocks';
 
 describe('App', () => {
-  beforeEach(async () => {
+  async function render(session: SessionService) {
     await TestBed.configureTestingModule({
       imports: [App],
-      providers: [provideRouter([])],
+      providers: [provideRouter([]), { provide: SessionService, useValue: session }],
     }).compileComponents();
+    const fixture = TestBed.createComponent(App);
+    await fixture.whenStable();
+    return fixture.nativeElement as HTMLElement;
+  }
+
+  it('hides the header when signed out', async () => {
+    const el = await render(mockSession('anonymous', null, null));
+    expect(el.querySelector('header')).toBeNull();
   });
 
-  it('should create the app', () => {
-    const fixture = TestBed.createComponent(App);
-    expect(fixture.componentInstance).toBeTruthy();
+  it('shows name, tenant and role in the header when the session is ready', async () => {
+    const el = await render(mockSession('ready', testMe('Admin')));
+    expect(el.querySelector('[data-testid="display-name"]')?.textContent).toContain('Me Myself');
+    expect(el.querySelector('[data-testid="tenant-name"]')?.textContent).toContain('Demo Client');
+    expect(el.querySelector('[data-testid="role-badge"]')?.textContent).toContain('Admin');
   });
 });
