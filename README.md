@@ -70,7 +70,8 @@ npm install
 npm start          # ng serve on http://localhost:4200
 ```
 
-Open http://localhost:4200/login. You should see **API status: ok**.
+Open http://localhost:4200, sign in with Microsoft, and you land on your tenant's dashboard.
+See [Frontend authentication](#frontend-authentication).
 
 ## Database
 
@@ -213,6 +214,65 @@ curl -H "Authorization: Bearer <token>" https://localhost:7294/api/demo/me
 ```
 
 Tokens are credentials: don't paste them into issues, chats or logs. They expire after about an hour.
+
+## Frontend authentication
+
+The SPA signs users in with **MSAL** (`@azure/msal-browser` + `@azure/msal-angular`, standalone providers in
+[`core/auth/msal.config.ts`](src/web/src/app/core/auth/msal.config.ts)). It uses the Authorization Code flow with PKCE,
+by redirect, against `https://login.microsoftonline.com/organizations`. Tokens are cached in `sessionStorage`.
+
+### Flow
+
+```text
+/login ── "Sign in with Microsoft" ──► loginRedirect(scope access_as_user) ──► Entra sign-in
+                                                                                   │
+   http://localhost:4200/#code=... ◄───────────────────────────────────────────────┘
+        │
+ app startup: initialize() → handleRedirectObservable() → setActiveAccount()   (before the router runs)
+        │
+ /login: SessionService.bootstrap()
+        ├─ GET /api/platform/my-tenant ── 404 ──► /unregistered
+        └─ GET /api/{slug}/me ─────────── 403 ──► /forbidden (shows the API's detail)
+                │ 200
+                ▼
+        Admin ──► /{slug}/admin        User ──► /{slug}/user
+```
+
+- **MsalInterceptor** attaches `Authorization: Bearer <token>` to `${apiBaseUrl}/api/*`, but not to `/api/health` or
+  `/api/health/*`. It gets tokens silently from the cache, or refreshes them.
+- **Guards** (in `core/guards`):
+  - `authGuard`: you must be signed in.
+  - `tenantGuard`: the URL's tenant must be yours. `/other/admin` is rewritten to `/demo/admin`.
+  - `adminGuard`: Admin role required, otherwise you go to `/{slug}/user`.
+- **HTTP errors:** a 401 from the API sends you to `/login`, and a 403 to `/forbidden`.
+
+Guards only shape the user experience. The **API is the security boundary**: it checks the token, `tid`, scope and role on every request.
+
+### Configuration
+
+| File | Keys |
+|---|---|
+| `src/web/src/environments/environment.development.ts` | `apiBaseUrl` (`https://localhost:7294`), `msal.clientId`, `msal.authority`, `msal.apiScope` |
+| `src/web/src/environments/environment.ts` (production) | same; `apiBaseUrl` is `<api-base-url>`, set by CI/CD |
+
+The SPA client id and the API scope are public identifiers, so they are committed. There are no secrets: a SPA is a public client.
+The SPA app registration needs `http://localhost:4200` (and `/login`) as **SPA** redirect URIs. Its API permission
+`access_as_user` must be granted (consented) in each organization.
+
+### Run it
+
+1. Start the API with `--launch-profile https`, as described above, and trust the dev certificate.
+2. Run `cd src/web && npm start`, then open http://localhost:4200 and sign in.
+3. In DevTools → Network, API calls carry `Authorization: Bearer …`. `/api/health` does not.
+
+### Common MSAL errors
+
+| Error | Meaning | Fix |
+|---|---|---|
+| `AADSTS50011` | Redirect URI mismatch | Add the exact origin (e.g. `http://localhost:4200`) as a **SPA** platform redirect URI, not "Web" |
+| `AADSTS65001` | The user or admin hasn't consented to `access_as_user` | Grant admin consent for the SPA's API permission in that organization, or sign in once as an admin and consent |
+| `interaction_in_progress` | A second login or redirect started while one was running | Wait or reload. If it persists, clear the tab's `sessionStorage` (stale `msal.interaction.status` key) |
+| 401 right after sign-in | The API rejected the token (wrong audience or scope) | Check `msal.apiScope` matches the API's `api://<clientId>/access_as_user` |
 
 ## Build and test
 
