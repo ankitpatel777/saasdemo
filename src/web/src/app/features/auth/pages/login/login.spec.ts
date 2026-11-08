@@ -33,6 +33,14 @@ describe('Login', () => {
     expect(text(f, 'api-status')).toContain('API status: ok');
   });
 
+  it('shows why the last sign-in redirect failed', async () => {
+    const session = mockSession('anonymous', null, null);
+    (session as unknown as { signInError: () => string | null }).signInError = () =>
+      'Sign-in was cancelled or failed. Please try again. (AADSTS65004)';
+    const f = await render(session);
+    expect(text(f, 'sign-in-error')).toContain('(AADSTS65004)');
+  });
+
   it('shows unreachable when the API call fails', async () => {
     const f = await render(mockSession('anonymous', null, null), throwError(() => new Error('down')));
     expect(text(f, 'api-status')).toContain('API status: unreachable');

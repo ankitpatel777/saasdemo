@@ -43,12 +43,15 @@ export class SessionService {
   private readonly meState = signal<MeResponse | null>(null);
   private readonly statusState = signal<SessionStatus>('anonymous');
   private readonly errorState = signal<string | null>(null);
+  private readonly signInErrorState = signal<string | null>(null);
   private pending: Promise<SessionStatus> | null = null;
 
   readonly account = this.accountState.asReadonly();
   readonly me = this.meState.asReadonly();
   readonly status = this.statusState.asReadonly();
   readonly errorMessage = this.errorState.asReadonly();
+  /** Why the last Entra redirect failed (cancelled, AADSTS error); kept apart from session loading. */
+  readonly signInError = this.signInErrorState.asReadonly();
   readonly isAdmin = computed(() => this.meState()?.role === 'Admin');
 
   /** The signed-in MSAL account (active, else the first cached one), or null. */
@@ -79,6 +82,7 @@ export class SessionService {
   }
 
   async login(): Promise<void> {
+    this.signInErrorState.set(null);
     try {
       await firstValueFrom(this.msal.loginRedirect({ scopes: [environment.msal.apiScope] }));
     } catch (error) {
@@ -101,6 +105,11 @@ export class SessionService {
   markUnauthorized(): void {
     this.statusState.set('error');
     this.errorState.set('Your session has expired or was rejected. Please sign in again.');
+  }
+
+  /** The sign-in redirect came back with an error; shown on the Login page. */
+  reportSignInError(message: string): void {
+    this.signInErrorState.set(message);
   }
 
   /** Remembers why the API said 403, for the /forbidden page. */

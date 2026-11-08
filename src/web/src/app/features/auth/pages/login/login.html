@@ -3,6 +3,9 @@
 @if (session.status() === 'loading') {
   <p data-testid="login-loading">Signing you in…</p>
 } @else {
+  @if (session.signInError(); as error) {
+    <p role="alert" data-testid="sign-in-error">{{ error }}</p>
+  }
   @if (session.errorMessage(); as error) {
     <p role="alert" data-testid="login-error">{{ error }}</p>
   }

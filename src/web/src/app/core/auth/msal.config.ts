@@ -9,6 +9,7 @@ import {
   MsalService,
 } from '@azure/msal-angular';
 import {
+  AuthenticationResult,
   BrowserCacheLocation,
   IPublicClientApplication,
   InteractionType,
@@ -16,6 +17,7 @@ import {
 } from '@azure/msal-browser';
 import { firstValueFrom } from 'rxjs';
 import { environment } from '../../../environments/environment';
+import { SessionService } from '../services/session.service';
 
 const api = environment.apiBaseUrl;
 
@@ -56,15 +58,45 @@ export function createMsalInterceptorConfig(): MsalInterceptorConfiguration {
  * Completes a sign-in redirect before the router starts, so guards already see the account:
  * initialize MSAL, process the #code response (if any), then pick the active account.
  */
-async function initializeMsal(msal: MsalService): Promise<void> {
+export async function initializeMsal(msal: MsalService, session: SessionService): Promise<void> {
   await firstValueFrom(msal.initialize());
-  const result = await firstValueFrom(msal.handleRedirectObservable());
+
+  let result: AuthenticationResult | null = null;
+  try {
+    result = await firstValueFrom(msal.handleRedirectObservable());
+  } catch (error) {
+    // Cancelled consent or an AADSTS error must not stop Angular from booting (blank page).
+    // Log only the code and message, never the error object (it may carry request details).
+    const code = signInErrorCode(error);
+    console.error('Sign-in redirect failed:', code ?? errorCodeOf(error));
+    session.reportSignInError(`Sign-in was cancelled or failed. Please try again.${code ? ` (${code})` : ''}`);
+  }
 
   const instance = msal.instance;
   const account = result?.account ?? instance.getActiveAccount() ?? instance.getAllAccounts()[0] ?? null;
   if (account) {
     instance.setActiveAccount(account);
   }
+}
+
+function errorCodeOf(error: unknown): string {
+  const code = (error as { errorCode?: unknown } | null)?.errorCode;
+  return typeof code === 'string' ? code : 'unknown_error';
+}
+
+/** The AADSTS code (e.g. AADSTS65004) carried by an MSAL error, if any. */
+export function signInErrorCode(error: unknown): string | null {
+  // Read fields structurally: instanceof is unreliable when MSAL is bundled more than once.
+  const e = (typeof error === 'object' && error !== null ? error : {}) as Partial<
+    Record<'errorNo' | 'errorCode' | 'subError' | 'errorMessage' | 'message', unknown>
+  >;
+  if (typeof e.errorNo === 'string' && /^\d+$/.test(e.errorNo)) {
+    return `AADSTS${e.errorNo}`; // Entra's numeric error code
+  }
+  const text = [e.errorCode, e.subError, e.errorMessage, e.message, typeof error === 'string' ? error : '']
+    .filter((part) => typeof part === 'string')
+    .join(' ');
+  return /AADSTS\d+/.exec(text)?.[0] ?? null;
 }
 
 /** MSAL for standalone apps: no MsalModule. Requires provideHttpClient(withInterceptorsFromDi()). */
@@ -75,6 +107,6 @@ export function provideMsal(): (Provider | EnvironmentProviders)[] {
     { provide: HTTP_INTERCEPTORS, useClass: MsalInterceptor, multi: true },
     MsalService,
     MsalBroadcastService,
-    provideAppInitializer(() => initializeMsal(inject(MsalService))),
+    provideAppInitializer(() => initializeMsal(inject(MsalService), inject(SessionService))),
   ];
 }
