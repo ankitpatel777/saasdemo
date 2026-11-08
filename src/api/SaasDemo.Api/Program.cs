@@ -1,7 +1,9 @@
 using SaasDemo.Api.Endpoints;
 using SaasDemo.Api.Tenancy;
 using SaasDemo.Application.Tenancy;
+using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using SaasDemo.Infrastructure;
+using SaasDemo.Infrastructure.Persistence;
 using Scalar.AspNetCore;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -15,6 +17,12 @@ builder.Services.AddInfrastructure(builder.Configuration);
 builder.Services.AddScoped<TenantResolver>();
 builder.Services.AddScoped<TenantContext>();
 builder.Services.AddScoped<ITenantContext>(sp => sp.GetRequiredService<TenantContext>());
+
+if (builder.Environment.IsDevelopment())
+{
+    // Ensures the "demo" tenant exists. Never registered outside Development.
+    builder.Services.AddHostedService<DevelopmentDataSeeder>();
+}
 
 // Enable telemetry only when APPLICATIONINSIGHTS_CONNECTION_STRING is configured (e.g. in App Service).
 if (!string.IsNullOrWhiteSpace(builder.Configuration["APPLICATIONINSIGHTS_CONNECTION_STRING"]))
@@ -47,10 +55,17 @@ app.UseAuthorization();
 
 app.MapControllers();
 
-// Anonymous tenant diagnostics are Development-only; elsewhere the route does not exist.
+// /api/health is liveness (no dependencies, HealthController); /api/health/ready also checks the database.
+app.MapHealthChecks("/api/health/ready", new HealthCheckOptions
+{
+    Predicate = check => check.Tags.Contains(DependencyInjection.ReadyTag),
+}).AllowAnonymous();
+
+// Anonymous tenant diagnostics are Development-only; elsewhere the routes do not exist.
 if (app.Environment.IsDevelopment())
 {
     app.MapTenantInfoEndpoint();
+    app.MapTenantUsersEndpoint();
 }
 
 app.Run();

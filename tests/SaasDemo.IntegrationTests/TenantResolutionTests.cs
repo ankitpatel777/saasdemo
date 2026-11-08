@@ -6,8 +6,8 @@ using Microsoft.AspNetCore.Mvc.Testing;
 namespace SaasDemo.IntegrationTests;
 
 /// <summary>Runs the API as Development (the WebApplicationFactory default).</summary>
-public class TenantResolutionTests(WebApplicationFactory<Program> factory)
-    : IClassFixture<WebApplicationFactory<Program>>
+public class TenantResolutionTests(SaasDemoApiFactory factory)
+    : IClassFixture<SaasDemoApiFactory>
 {
     private sealed record TenantInfo(Guid TenantId, string Slug, string Name);
 

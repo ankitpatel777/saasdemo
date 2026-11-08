@@ -8,4 +8,9 @@
     <ProjectReference Include="..\SaasDemo.Application\SaasDemo.Application.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <PackageReference Include="Microsoft.EntityFrameworkCore.SqlServer" Version="9.0.22" />
+    <PackageReference Include="Microsoft.Extensions.Diagnostics.HealthChecks.EntityFrameworkCore" Version="9.0.22" />
+  </ItemGroup>
+
 </Project>

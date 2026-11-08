@@ -6,8 +6,8 @@ using Microsoft.AspNetCore.Mvc.Testing;
 namespace SaasDemo.IntegrationTests;
 
 /// <summary>Runs the API as Production: tenant routes are closed to anonymous callers.</summary>
-public class ProductionTenantRoutesTests(WebApplicationFactory<Program> factory)
-    : IClassFixture<WebApplicationFactory<Program>>
+public class ProductionTenantRoutesTests(SaasDemoApiFactory factory)
+    : IClassFixture<SaasDemoApiFactory>
 {
     private readonly HttpClient _client = factory
         .WithWebHostBuilder(builder => builder.UseEnvironment("Production"))
