@@ -75,6 +75,12 @@ public static class TenantEndpoints
 
         var user = await provisioning.ProvisionAsync(new ExternalIdentity(objectId, email, displayName, role), ct);
 
+        if (!user.IsActive)
+        {
+            return Results.Problem(statusCode: StatusCodes.Status403Forbidden, title: "Forbidden",
+                detail: "Your account has been deactivated by your organization's administrator.");
+        }
+
         return Results.Ok(new MeResponse(
             user.Id, user.Email, user.DisplayName, user.Role.ToString(),
             new TenantRef(tenantContext.Slug, tenantContext.Name)));

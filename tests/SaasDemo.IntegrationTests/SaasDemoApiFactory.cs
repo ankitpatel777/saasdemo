@@ -76,6 +76,14 @@ public sealed class SaasDemoApiFactory : WebApplicationFactory<Program>
         return db.Users.AsNoTracking().ToList();
     }
 
+    /// <summary>Deactivates a user directly in the database, as an organization admin would.</summary>
+    public void DeactivateUser(Guid tenantId, Guid entraObjectId)
+    {
+        using var db = new AppDbContext(_dbOptions, new FixedTenantContext(tenantId));
+        db.Users.Single(u => u.EntraObjectId == entraObjectId).Deactivate();
+        db.SaveChanges();
+    }
+
     protected override void Dispose(bool disposing)
     {
         base.Dispose(disposing);

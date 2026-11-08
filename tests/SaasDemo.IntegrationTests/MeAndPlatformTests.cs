@@ -50,6 +50,30 @@ public class MeAndPlatformTests(SaasDemoApiFactory factory) : IClassFixture<Saas
     }
 
     [Fact]
+    public async Task Me_DeactivatedUser_Gets403AndNothingIsUpdated()
+    {
+        var oid = Guid.NewGuid();
+        (await factory.CreateClientFor(new TestUser(DemoEntraTenantId, oid, ["User"])).GetAsync("/api/demo/me"))
+            .EnsureSuccessStatusCode();
+        factory.DeactivateUser(DemoTenantId, oid);
+        var before = factory.GetUsers(DemoTenantId).Single(u => u.EntraObjectId == oid);
+
+        // Even with a now-elevated role in the token, a deactivated user is refused and not touched.
+        var response = await factory.CreateClientFor(new TestUser(DemoEntraTenantId, oid, ["Admin"]))
+            .GetAsync("/api/demo/me");
+
+        response.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        response.Content.Headers.ContentType!.MediaType.Should().Be("application/problem+json");
+        (await response.Content.ReadFromJsonAsync<ProblemDetails>())!.Detail
+            .Should().Be("Your account has been deactivated by your organization's administrator.");
+
+        var after = factory.GetUsers(DemoTenantId).Single(u => u.EntraObjectId == oid);
+        after.LastLoginAtUtc.Should().Be(before.LastLoginAtUtc);
+        after.Role.Should().Be(UserRole.User);
+        after.IsActive.Should().BeFalse();
+    }
+
+    [Fact]
     public async Task Me_AdminWinsWhenBothRolesAreAssigned()
     {
         var me = await factory.CreateClientFor(TestUser.For(DemoEntraTenantId, "User", "Admin"))

@@ -47,6 +47,11 @@ public sealed class UserProvisioningService(AppDbContext db, TimeProvider timePr
                 now);
             db.Users.Add(user);
         }
+        else if (!user.IsActive)
+        {
+            // Deactivated by the organization: record nothing (no role sync, no login time), just report it.
+            return ToResult(user);
+        }
         else
         {
             user.SyncRole(identity.Role);
@@ -55,8 +60,11 @@ public sealed class UserProvisioningService(AppDbContext db, TimeProvider timePr
         user.RecordLogin(now);
         await db.SaveChangesAsync(ct);
 
-        return new ProvisionedUser(user.Id, user.Email, user.DisplayName, user.Role);
+        return ToResult(user);
     }
+
+    private static ProvisionedUser ToResult(AppUser user) =>
+        new(user.Id, user.Email, user.DisplayName, user.Role, user.IsActive);
 
     private static string Truncate(string value, int maxLength) =>
         value.Length <= maxLength ? value : value[..maxLength];
