@@ -1,0 +1,217 @@
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# OIDC: id-token lets the job ask GitHub for a signed token that Azure exchanges for an access token.
+permissions:
+  id-token: write
+  contents: read
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+env:
+  DOTNET_NOLOGO: true
+  DOTNET_CLI_TELEMETRY_OPTOUT: true
+
+jobs:
+  build:
+    name: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+
+      - name: Set up .NET 9
+        uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+          cache: true
+          cache-dependency-path: '**/*.csproj'
+
+      - name: Set up Node (LTS)
+        uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+          cache: npm
+          cache-dependency-path: src/web/package-lock.json
+
+      - name: Publish API
+        run: dotnet publish src/api/SaasDemo.Api/SaasDemo.Api.csproj -c Release -o out/api
+
+      - name: Restore local tools (dotnet-ef)
+        run: dotnet tool restore
+
+      # No --idempotent: that flag belongs to "migrations script". A bundle runs Migrate(), which
+      # skips migrations already recorded in __EFMigrationsHistory, so re-running it is safe.
+      - name: Create EF Core migrations bundle
+        run: >
+          dotnet ef migrations bundle
+          --project src/api/SaasDemo.Infrastructure
+          --startup-project src/api/SaasDemo.Api
+          --configuration Release
+          --self-contained -r linux-x64
+          --output out/efbundle/efbundle
+          --verbose
+
+      - name: Inject API base URL into the SPA environment
+        env:
+          API_BASE_URL: ${{ vars.API_BASE_URL }}
+        run: |
+          file=src/web/src/environments/environment.ts
+          if [ -z "$API_BASE_URL" ]; then
+            echo "::error::Repository variable API_BASE_URL is not set."; exit 1
+          fi
+          if ! grep -q "<api-base-url>" "$file"; then
+            echo "::error file=$file::Placeholder '<api-base-url>' not found."; exit 1
+          fi
+          # '|' as the sed delimiter because the URL contains '/'.
+          sed -i "s|<api-base-url>|${API_BASE_URL%/}|g" "$file"
+
+      - name: Install web dependencies
+        working-directory: src/web
+        run: npm ci
+
+      - name: Build SPA (production)
+        working-directory: src/web
+        run: npm run build -- --configuration production
+
+      - name: Verify SPA output includes staticwebapp.config.json
+        run: test -f src/web/dist/web/browser/staticwebapp.config.json || { echo "::error::staticwebapp.config.json missing from the build output."; exit 1; }
+
+      - name: Upload API artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: api
+          path: out/api
+          if-no-files-found: error
+
+      - name: Upload migrations bundle artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: efbundle
+          path: out/efbundle
+          if-no-files-found: error
+
+      - name: Upload SPA artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: web
+          path: src/web/dist/web/browser
+          if-no-files-found: error
+
+  deploy:
+    name: deploy
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    # Waits here for the required reviewer. The OIDC subject is ...:environment:production,
+    # so only jobs in this environment can sign in to Azure.
+    environment:
+      name: production
+      url: ${{ steps.swa.outputs.url }}
+    env:
+      AZURE_RG: ${{ vars.AZURE_RG }}
+      API_APP_NAME: ${{ vars.API_APP_NAME }}
+      SQL_SERVER_NAME: ${{ vars.SQL_SERVER_NAME }}
+      SWA_NAME: ${{ vars.SWA_NAME }}
+      API_BASE_URL: ${{ vars.API_BASE_URL }}
+      FIREWALL_RULE: gh-${{ github.run_id }}
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Azure login (OIDC, no secrets)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Resolve Static Web App URL
+        id: swa
+        run: |
+          host=$(az staticwebapp show --name "$SWA_NAME" --resource-group "$AZURE_RG" --query defaultHostname -o tsv)
+          echo "url=https://$host" >> "$GITHUB_OUTPUT"
+
+      - name: Open temporary SQL firewall rule for this runner
+        run: |
+          ip=$(curl -fsS --retry 3 https://api.ipify.org)
+          echo "Runner public IP: $ip"
+          az sql server firewall-rule create \
+            --resource-group "$AZURE_RG" --server "$SQL_SERVER_NAME" \
+            --name "$FIREWALL_RULE" --start-ip-address "$ip" --end-ip-address "$ip" \
+            --output none
+
+      - name: Apply database migrations (bundle)
+        run: |
+          bundle=artifacts/efbundle/efbundle
+          chmod +x "$bundle" # artifacts do not keep the executable bit
+          conn="Server=tcp:${SQL_SERVER_NAME}.database.windows.net,1433;Database=sqldb-saasdemo-dev;Authentication=Active Directory Default;Encrypt=True;"
+          if ! "$bundle" --connection "$conn"; then
+            echo "::warning::Migration attempt 1 failed (serverless DB may be resuming). Retrying in 60s."
+            sleep 60
+            "$bundle" --connection "$conn"
+          fi
+
+      - name: Remove temporary SQL firewall rule
+        if: always()
+        run: |
+          az sql server firewall-rule delete \
+            --resource-group "$AZURE_RG" --server "$SQL_SERVER_NAME" --name "$FIREWALL_RULE" \
+            --output none || echo "::warning::Firewall rule $FIREWALL_RULE was not removed (it may not exist)."
+
+      - name: Deploy API to App Service
+        uses: azure/webapps-deploy@v3
+        with:
+          app-name: ${{ vars.API_APP_NAME }}
+          package: artifacts/api
+
+      - name: Fetch SWA deployment token (runtime, masked)
+        id: swatoken
+        run: |
+          token=$(az staticwebapp secrets list --name "$SWA_NAME" --resource-group "$AZURE_RG" --query properties.apiKey -o tsv)
+          if [ -z "$token" ]; then echo "::error::Could not read the SWA deployment token."; exit 1; fi
+          echo "::add-mask::$token"
+          echo "token=$token" >> "$GITHUB_OUTPUT"
+
+      - name: Deploy SPA to Static Web Apps
+        uses: Azure/static-web-apps-deploy@v1
+        with:
+          azure_static_web_apps_api_token: ${{ steps.swatoken.outputs.token }}
+          action: upload
+          skip_app_build: true
+          skip_api_build: true
+          app_location: artifacts/web
+          output_location: ''
+
+      - name: Smoke test API health
+        run: |
+          base="${API_BASE_URL%/}"
+          curl -fsS --retry 10 --retry-delay 15 --retry-all-errors "$base/api/health"
+          echo
+          curl -fsS --retry 10 --retry-delay 15 --retry-all-errors "$base/api/health/ready"
+          echo
+
+      - name: Write deployment summary
+        if: always()
+        env:
+          SWA_URL: ${{ steps.swa.outputs.url }}
+        run: |
+          {
+            echo "## Deployment"
+            echo ""
+            echo "| | |"
+            echo "|---|---|"
+            echo "| Commit | \`${GITHUB_SHA::7}\` |"
+            echo "| Status | ${{ job.status }} |"
+            echo "| API | ${API_BASE_URL} |"
+            echo "| SPA | ${SWA_URL:-unknown} |"
+          } >> "$GITHUB_STEP_SUMMARY"
