@@ -1,3 +1,6 @@
+using SaasDemo.Api.Tenancy;
+using SaasDemo.Application.Tenancy;
+using SaasDemo.Infrastructure;
 using Scalar.AspNetCore;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -6,6 +9,11 @@ builder.Services.AddControllers();
 builder.Services.AddOpenApi();
 builder.Services.AddProblemDetails();
 builder.Services.AddSingleton(TimeProvider.System);
+
+builder.Services.AddInfrastructure(builder.Configuration);
+builder.Services.AddScoped<TenantResolver>();
+builder.Services.AddScoped<TenantContext>();
+builder.Services.AddScoped<ITenantContext>(sp => sp.GetRequiredService<TenantContext>());
 
 // Enable telemetry only when APPLICATIONINSIGHTS_CONNECTION_STRING is configured (e.g. in App Service).
 if (!string.IsNullOrWhiteSpace(builder.Configuration["APPLICATIONINSIGHTS_CONNECTION_STRING"]))
@@ -31,8 +39,13 @@ if (app.Environment.IsDevelopment())
 
 app.UseHttpsRedirection();
 app.UseCors("spa");
+// TODO(step 7.4): app.UseAuthentication() goes here, before tenant resolution, so the tid check can run.
+app.UseMiddleware<TenantResolutionMiddleware>();
 app.UseAuthorization();
 
 app.MapControllers();
 
 app.Run();
+
+// Exposes Program to WebApplicationFactory in integration tests.
+public partial class Program;
