@@ -1,0 +1,16 @@
+.subtitle {
+  color: var(--mat-sys-on-surface-variant);
+  margin-top: -0.5rem;
+}
+
+.stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+}
+
+.recent h2 {
+  margin: 0;
+  font: var(--mat-sys-title-large);
+}

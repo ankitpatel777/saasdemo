@@ -1,0 +1,35 @@
+.table-wrap {
+  overflow-x: auto; // the table scrolls on its own on narrow screens; the page never does
+}
+
+table {
+  width: 100%;
+  min-width: 640px;
+}
+
+.name {
+  font-weight: 500;
+}
+
+.email,
+.muted {
+  color: var(--mat-sys-on-surface-variant);
+  font: var(--mat-sys-body-small);
+}
+
+.status {
+  padding: 0.1rem 0.6rem;
+  border-radius: 999px;
+  font: var(--mat-sys-label-medium);
+  background: var(--mat-sys-tertiary-container);
+  color: var(--mat-sys-on-tertiary-container);
+
+  &.inactive {
+    background: var(--mat-sys-error-container);
+    color: var(--mat-sys-on-error-container);
+  }
+}
+
+.inactive-row .name {
+  color: var(--mat-sys-on-surface-variant);
+}

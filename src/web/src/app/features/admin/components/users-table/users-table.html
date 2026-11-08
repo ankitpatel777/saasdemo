@@ -1,0 +1,88 @@
+<div class="table-wrap">
+  <table
+    mat-table
+    [dataSource]="users()"
+    matSort
+    matSortDisableClear
+    [matSortActive]="sort()"
+    [matSortDirection]="direction()"
+    (matSortChange)="onSort($event)"
+    data-testid="users-table"
+    aria-label="Users"
+  >
+    <ng-container matColumnDef="displayName">
+      <th mat-header-cell *matHeaderCellDef mat-sort-header sortActionDescription="Sort by name">Name</th>
+      <td mat-cell *matCellDef="let user">
+        <div class="name">{{ user.displayName }}</div>
+        <div class="email">{{ user.email }}</div>
+      </td>
+    </ng-container>
+
+    <ng-container matColumnDef="role">
+      <th mat-header-cell *matHeaderCellDef>Role</th>
+      <td mat-cell *matCellDef="let user">{{ user.role }}</td>
+    </ng-container>
+
+    <ng-container matColumnDef="status">
+      <th mat-header-cell *matHeaderCellDef>Status</th>
+      <td mat-cell *matCellDef="let user">
+        <span class="status" [class.inactive]="!user.isActive" data-testid="status">
+          {{ user.isActive ? 'Active' : 'Inactive' }}
+        </span>
+      </td>
+    </ng-container>
+
+    <ng-container matColumnDef="lastLogin">
+      <th mat-header-cell *matHeaderCellDef mat-sort-header sortActionDescription="Sort by last sign-in">Last sign-in</th>
+      <td mat-cell *matCellDef="let user">
+        @if (user.lastLoginAtUtc) {
+          <time [attr.datetime]="user.lastLoginAtUtc" [title]="user.lastLoginAtUtc | date: 'medium'">
+            {{ user.lastLoginAtUtc | relativeTime }}
+          </time>
+        } @else {
+          <span class="muted">Never</span>
+        }
+      </td>
+    </ng-container>
+
+    <ng-container matColumnDef="createdAt">
+      <th mat-header-cell *matHeaderCellDef mat-sort-header sortActionDescription="Sort by date added">Added</th>
+      <td mat-cell *matCellDef="let user">{{ user.createdAtUtc | date: 'mediumDate' }}</td>
+    </ng-container>
+
+    <ng-container matColumnDef="actions">
+      <th mat-header-cell *matHeaderCellDef><span class="visually-hidden">Actions</span></th>
+      <td mat-cell *matCellDef="let user">
+        @let isSelf = user.id === currentUserId();
+        <span [matTooltip]="isSelf ? 'You cannot deactivate yourself' : ''">
+          <button
+            mat-icon-button
+            type="button"
+            [matMenuTriggerFor]="menu"
+            [disabled]="isSelf || user.id === busyId()"
+            [attr.aria-label]="'Actions for ' + user.displayName"
+            data-testid="row-menu"
+          >
+            <mat-icon>more_vert</mat-icon>
+          </button>
+        </span>
+        <mat-menu #menu="matMenu">
+          @if (user.isActive) {
+            <button mat-menu-item type="button" (click)="deactivate.emit(user)" data-testid="deactivate">
+              <mat-icon>person_off</mat-icon>
+              <span>Deactivate</span>
+            </button>
+          } @else {
+            <button mat-menu-item type="button" (click)="reactivate.emit(user)" data-testid="reactivate">
+              <mat-icon>how_to_reg</mat-icon>
+              <span>Reactivate</span>
+            </button>
+          }
+        </mat-menu>
+      </td>
+    </ng-container>
+
+    <tr mat-header-row *matHeaderRowDef="columns"></tr>
+    <tr mat-row *matRowDef="let row; columns: columns" [class.inactive-row]="!row.isActive"></tr>
+  </table>
+</div>

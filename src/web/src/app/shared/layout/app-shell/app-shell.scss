@@ -1,0 +1,98 @@
+:host {
+  display: flex;
+  flex-direction: column;
+  min-height: 100dvh;
+}
+
+.toolbar {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  gap: 0.5rem;
+  background: var(--mat-sys-surface-container);
+  color: var(--mat-sys-on-surface);
+  border-bottom: 1px solid var(--mat-sys-outline-variant);
+}
+
+.tenant {
+  font: var(--mat-sys-title-medium);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.spacer {
+  flex: 1;
+}
+
+.user {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font: var(--mat-sys-body-medium);
+}
+
+.role {
+  padding: 0.1rem 0.6rem;
+  border-radius: 999px;
+  background: var(--mat-sys-secondary-container);
+  color: var(--mat-sys-on-secondary-container);
+  font: var(--mat-sys-label-medium);
+}
+
+.container {
+  flex: 1;
+}
+
+.sidenav {
+  width: 240px;
+  border-right: 1px solid var(--mat-sys-outline-variant);
+}
+
+// Plain links instead of mat-nav-list: MatListModule would pull @angular/forms into the initial bundle.
+.nav {
+  list-style: none;
+  margin: 0;
+  padding: 0.5rem;
+}
+
+.nav-link {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  min-height: 48px;
+  padding: 0 1rem;
+  border-radius: 999px;
+  color: var(--mat-sys-on-surface-variant);
+  text-decoration: none;
+  font: var(--mat-sys-label-large);
+
+  &:hover {
+    background: var(--mat-sys-surface-container-high);
+  }
+
+  &.active {
+    background: var(--mat-sys-secondary-container);
+    color: var(--mat-sys-on-secondary-container);
+  }
+}
+
+.content {
+  padding: 1.5rem;
+  max-width: 1200px;
+  margin: 0 auto;
+  box-sizing: border-box;
+}
+
+.plain {
+  width: 100%;
+}
+
+@media (max-width: 599.98px) {
+  .content {
+    padding: 1rem;
+  }
+  .user .name {
+    display: none; // keep the toolbar to one line on phones; the role badge stays
+  }
+}
