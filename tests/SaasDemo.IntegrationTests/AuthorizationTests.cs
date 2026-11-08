@@ -11,6 +11,7 @@ namespace SaasDemo.IntegrationTests;
 public class AuthorizationTests(SaasDemoApiFactory factory) : IClassFixture<SaasDemoApiFactory>
 {
     private sealed record UserDto(Guid Id, string Email, string DisplayName, string Role);
+    private sealed record UserPage(List<UserDto> Items, int Page, int PageSize, int TotalCount);
 
     [Theory]
     [InlineData("/api/demo/info")]
@@ -30,7 +31,7 @@ public class AuthorizationTests(SaasDemoApiFactory factory) : IClassFixture<Saas
     [Fact]
     public async Task User_CanReadInfo_ButNotUsers()
     {
-        var client = factory.CreateClientFor(TestUser.For(DemoEntraTenantId, "User"));
+        var client = factory.CreateClientFor(Bob);
 
         (await client.GetAsync("/api/demo/info")).StatusCode.Should().Be(HttpStatusCode.OK);
 
@@ -42,14 +43,12 @@ public class AuthorizationTests(SaasDemoApiFactory factory) : IClassFixture<Saas
     [Fact]
     public async Task Admin_CanListUsers_OfOwnTenantOnly()
     {
-        var demoAdmin = factory.CreateClientFor(TestUser.For(DemoEntraTenantId, "Admin"));
-        var otherAdmin = factory.CreateClientFor(TestUser.For(OtherEntraTenantId, "Admin"));
+        var demo = await factory.CreateClientFor(Alice).GetFromJsonAsync<UserPage>("/api/demo/users?pageSize=50");
+        var other = await factory.CreateClientFor(Eve).GetFromJsonAsync<UserPage>("/api/other/users?pageSize=50");
 
-        var demo = await demoAdmin.GetFromJsonAsync<List<UserDto>>("/api/demo/users") ?? [];
-        var other = await otherAdmin.GetFromJsonAsync<List<UserDto>>("/api/other/users") ?? [];
-
-        demo.Select(u => u.Email).Should().Equal("alice@demo.example", "bob@demo.example");
-        other.Select(u => u.Email).Should().Equal("eve@other.example");
+        demo!.Items.Select(u => u.Email).Should().Contain(["alice@demo.example", "bob@demo.example"])
+            .And.NotContain("eve@other.example");
+        other!.Items.Select(u => u.Email).Should().Equal("eve@other.example");
     }
 
     [Theory]
@@ -106,7 +105,7 @@ public class AuthorizationTests(SaasDemoApiFactory factory) : IClassFixture<Saas
         (await production.CreateClient().GetAsync("/api/demo/info")).StatusCode.Should().Be(HttpStatusCode.Unauthorized);
         (await production.CreateClient().GetAsync("/api/health/ready")).StatusCode.Should().Be(HttpStatusCode.OK);
 
-        var admin = production.CreateClientFor(TestUser.For(DemoEntraTenantId, "Admin"));
+        var admin = production.CreateClientFor(Alice);
         (await admin.GetAsync("/api/demo/info")).StatusCode.Should().Be(HttpStatusCode.OK);
         (await admin.GetAsync("/api/demo/users")).StatusCode.Should().Be(HttpStatusCode.OK);
     }

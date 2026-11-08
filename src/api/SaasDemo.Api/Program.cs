@@ -1,3 +1,4 @@
+using FluentValidation;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using SaasDemo.Api.Authorization;
 using SaasDemo.Api.Endpoints;
@@ -19,6 +20,10 @@ builder.Services.AddInfrastructure(builder.Configuration);
 builder.Services.AddScoped<TenantResolver>();
 builder.Services.AddScoped<TenantContext>();
 builder.Services.AddScoped<ITenantContext>(sp => sp.GetRequiredService<TenantContext>());
+
+builder.Services.AddScoped<IValidator<UsersQueryParameters>, UsersQueryParametersValidator>();
+builder.Services.AddScoped<IValidator<AuditQueryParameters>, AuditQueryParametersValidator>();
+builder.Services.AddScoped<IValidator<UpdateSettingsRequest>, UpdateSettingsRequestValidator>();
 
 builder.Services.AddApiAuthentication(builder.Configuration);
 builder.Services.AddApiAuthorization();

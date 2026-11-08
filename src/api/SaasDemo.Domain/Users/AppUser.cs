@@ -45,5 +45,8 @@ public sealed class AppUser : ITenantOwned
     /// <summary>The token is the source of truth for roles; the stored role is a synced copy.</summary>
     public void SyncRole(UserRole role) => Role = role;
 
+    /// <summary>Activation is decided by the organization's admins in this app, independently of the Entra role.</summary>
     public void Deactivate() => IsActive = false;
+
+    public void Reactivate() => IsActive = true;
 }

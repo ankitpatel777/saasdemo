@@ -115,7 +115,7 @@ In Azure, the connection string comes from the App Service setting `ConnectionSt
 
 ### How tenant isolation works
 
-Tenant-owned tables (those whose entity implements `ITenantOwned`, today only `Users`) are protected twice:
+Tenant-owned tables (those whose entity implements `ITenantOwned`: `Users` and `AuditEvents`) are protected twice:
 
 1. **EF Core (app layer).** A global query filter adds `WHERE TenantId = <current tenant>` to every query.
    `SaveChanges` stamps the current tenant on new rows. It throws if a row belongs to another tenant or no tenant is resolved.
@@ -163,6 +163,7 @@ GET /api/demo/users   Authorization: Bearer eyJ...
         │            no access_as_user scope ──────► 403
         │            token tid ≠ demo's EntraTenantId ► 403 (logged as a warning)
         │            role missing for this endpoint ──► 403
+        │            user not provisioned / deactivated ► 403 (all but /me)
         ▼
  Endpoint ── EF query filter + SQL RLS scope the data to demo
 ```
@@ -174,8 +175,9 @@ GET /api/demo/users   Authorization: Bearer eyJ...
 | Fallback | signed in + `access_as_user` scope | anything without its own policy |
 | `ApiScope` | signed in + `scp` contains `access_as_user` | `GET /api/platform/my-tenant` |
 | `TenantMember` | `ApiScope` + token `tid` = tenant's `EntraTenantId` | building block |
-| `TenantUser` | `TenantMember` + role `Admin` or `User` | `GET /api/{tenant}/info`, `GET /api/{tenant}/me` |
-| `TenantAdmin` | `TenantMember` + role `Admin` | `GET /api/{tenant}/users` |
+| `TenantSignIn` | `TenantMember` + role `Admin` or `User` | `GET /api/{tenant}/me` only (it provisions the caller) |
+| `TenantUser` | `TenantSignIn` + **active, provisioned user** (`ActiveTenantUser`) | `GET /api/{tenant}/info`, `GET /api/{tenant}/me/activity` |
+| `TenantAdmin` | `TenantMember` + role `Admin` + `ActiveTenantUser` | everything in [Dashboards](#dashboards): users, audit, summary, settings |
 | anonymous | nothing | `/api/health`, `/api/health/ready`, OpenAPI/Scalar (Development) |
 
 401 and 403 responses are ProblemDetails. A 403's `detail` says what is missing, e.g. *"No role assigned in your organization."*
@@ -273,6 +275,66 @@ The SPA app registration needs `http://localhost:4200` (and `/login`) as **SPA**
 | `AADSTS65001` | The user or admin hasn't consented to `access_as_user` | Grant admin consent for the SPA's API permission in that organization, or sign in once as an admin and consent |
 | `interaction_in_progress` | A second login or redirect started while one was running | Wait or reload. If it persists, clear the tab's `sessionStorage` (stale `msal.interaction.status` key) |
 | 401 right after sign-in | The API rejected the token (wrong audience or scope) | Check `msal.apiScope` matches the API's `api://<clientId>/access_as_user` |
+
+## Dashboards
+
+After sign-in, Admins land on `/{tenant}/admin` and Users on `/{tenant}/user`. The UI is Angular Material
+(Material 3 theme; light or dark follows the OS `prefers-color-scheme`). On narrow screens the side navigation
+becomes a drawer.
+
+| Page | Route | What it shows | API |
+|---|---|---|---|
+| Admin › Overview | `/{tenant}/admin` | totals (users, active, admins, sign-ins in the last 7 days) and the 5 latest events | `GET dashboard/summary`, `GET audit?pageSize=5` |
+| Admin › Users | `/{tenant}/admin/users` | searchable, filterable, sortable, paged table; deactivate/reactivate from the row menu | `GET users`, `POST users/{id}/deactivate`, `POST users/{id}/reactivate` |
+| Admin › Activity | `/{tenant}/admin/activity` | the organization's audit log, newest first | `GET audit` |
+| Admin › Settings | `/{tenant}/admin/settings` | rename the organization (the slug and URLs do not change) | `PUT settings` |
+| User › Overview | `/{tenant}/user` | my profile and my last 10 sign-ins | `GET me/activity` |
+
+All API paths are under `/api/{tenant}/`. Screenshots:
+
+| Admin overview | Users | User overview |
+|---|---|---|
+| _screenshot: docs/images/admin-overview.png_ | _screenshot: docs/images/admin-users.png_ | _screenshot: docs/images/user-overview.png_ |
+
+### Roles vs. activation
+
+These are two separate switches, owned by two different parties:
+
+| | **Role** (Admin / User) | **Activation** (active / inactive) |
+|---|---|---|
+| Owned by | the customer's Entra admin | the customer's Admins, inside this app |
+| Stored in | the access token (`roles` claim) | our database (`Users.IsActive`) |
+| Changed in | [Microsoft Entra admin center](https://entra.microsoft.com) › Enterprise applications › Users and groups | Admin › Users › row menu |
+| Takes effect | at the user's next token (up to ~1 hour) | immediately |
+
+- The app **never edits roles**. The stored `Users.Role` is only a copy, re-synced from the token on every `/me`.
+- **Deactivating** someone blocks this app only. Their Microsoft account and their other apps are untouched.
+  Every TenantUser/TenantAdmin endpoint checks activation (`ActiveTenantUser`). The lookup is cached for
+  30 seconds and evicted on deactivate/reactivate, so the change is immediate on that API instance. With several
+  instances, other instances may take up to 30 seconds.
+- You can't deactivate yourself (400), so an organization can't lock out its last Admin by accident.
+
+### Audit log
+
+`AuditEvents` is tenant-owned, so it gets the EF query filter **and** RLS. The migration `AddAuditEventsAndRls`
+adds its predicates to the existing `Security.TenantIsolationPolicy`; check it on Azure SQL with
+[`docs/rls-verification.sql`](docs/rls-verification.sql). Each event is saved in the same `SaveChanges` as the
+change it describes.
+
+| Event | Written when |
+|---|---|
+| `UserProvisioned` | a user's first `/me` |
+| `UserSignedIn` | `/me`, at most once per 30 minutes per user (the SPA calls `/me` on every load) |
+| `UserDeactivated` / `UserReactivated` | an Admin changes activation (not when it was already in that state) |
+| `TenantSettingsUpdated` | an Admin renames the organization |
+
+### Bundle budget
+
+The initial-bundle warning budget is **800 kB** (the hard error stays at 1 MB). Material components are imported
+per component, and every page is lazy-loaded. The shell (toolbar, sidenav, icons) is needed on the first signed-in
+screen, which adds about 120 kB raw (about 25 kB gzipped) to the initial bundle. MSAL accounts for about 340 kB of
+the rest. The side navigation uses plain links rather than `mat-nav-list`, because that module would also pull
+`@angular/forms` into the initial bundle.
 
 ## Build and test
 

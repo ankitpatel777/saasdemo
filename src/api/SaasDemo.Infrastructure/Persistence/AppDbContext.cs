@@ -1,6 +1,7 @@
 using System.Reflection;
 using Microsoft.EntityFrameworkCore;
 using SaasDemo.Application.Tenancy;
+using SaasDemo.Domain.Audit;
 using SaasDemo.Domain.Common;
 using SaasDemo.Domain.Tenants;
 using SaasDemo.Domain.Users;
@@ -20,10 +21,18 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options, ITenant
 
     public DbSet<Tenant> Tenants => Set<Tenant>();
     public DbSet<AppUser> Users => Set<AppUser>();
+    public DbSet<AuditEvent> AuditEvents => Set<AuditEvent>();
 
     // Referenced from the query filter: EF re-reads it per query, so one cached model serves all tenants.
     // No resolved tenant -> Guid.Empty -> matches no rows (fail closed).
     private Guid CurrentTenantId => tenantContext.IsResolved ? tenantContext.TenantId : Guid.Empty;
+
+    protected override void ConfigureConventions(ModelConfigurationBuilder configurationBuilder)
+    {
+        // All DateTimes are stored as UTC. Mark them as UTC on read too, so JSON says "...Z" and browsers
+        // don't take them for local time. Does not change the database schema.
+        configurationBuilder.Properties<DateTime>().HaveConversion<UtcDateTimeConverter>();
+    }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

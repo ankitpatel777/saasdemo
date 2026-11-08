@@ -10,7 +10,7 @@ public class TenantResolutionTests(SaasDemoApiFactory factory) : IClassFixture<S
 {
     private sealed record TenantInfo(Guid TenantId, string Slug, string Name);
 
-    private readonly HttpClient _demoUser = factory.CreateClientFor(TestUser.For(DemoEntraTenantId, "User"));
+    private readonly HttpClient _demoUser = factory.CreateClientFor(Bob);
 
     [Fact]
     public async Task KnownTenant_ReturnsInfoFromTheDatabase()

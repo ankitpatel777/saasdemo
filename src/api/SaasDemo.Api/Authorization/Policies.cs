@@ -9,10 +9,13 @@ public static class Policies
     /// <summary>ApiScope + the token's tenant (tid) owns the tenant in the URL.</summary>
     public const string TenantMember = nameof(TenantMember);
 
-    /// <summary>TenantMember + app role Admin or User.</summary>
+    /// <summary>TenantMember + app role Admin or User. Used only by /me, which provisions the caller.</summary>
+    public const string TenantSignIn = nameof(TenantSignIn);
+
+    /// <summary>TenantMember + app role Admin or User + an active, provisioned user of the tenant.</summary>
     public const string TenantUser = nameof(TenantUser);
 
-    /// <summary>TenantMember + app role Admin.</summary>
+    /// <summary>TenantMember + app role Admin + an active, provisioned user of the tenant.</summary>
     public const string TenantAdmin = nameof(TenantAdmin);
 
     public const string RequiredScope = "access_as_user";

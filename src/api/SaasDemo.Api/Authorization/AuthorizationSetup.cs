@@ -35,6 +35,9 @@ public static class AuthorizationSetup
     {
         var scope = new ScopeRequirement(Policies.RequiredScope);
         var member = new TenantMemberRequirement();
+        var anyRole = new AppRoleRequirement("No role assigned in your organization.", AppRoles.Admin, AppRoles.User);
+        var adminRole = new AppRoleRequirement("This action requires the Admin role.", AppRoles.Admin);
+        var active = new ActiveTenantUserRequirement();
 
         services.AddAuthorizationBuilder()
             // Anything without its own policy (including future endpoints) needs a signed-in caller with
@@ -45,16 +48,17 @@ public static class AuthorizationSetup
                 .Build())
             .AddPolicy(Policies.ApiScope, p => p.RequireAuthenticatedUser().AddRequirements(scope))
             .AddPolicy(Policies.TenantMember, p => p.RequireAuthenticatedUser().AddRequirements(scope, member))
-            .AddPolicy(Policies.TenantUser, p => p.RequireAuthenticatedUser().AddRequirements(
-                scope, member,
-                new AppRoleRequirement("No role assigned in your organization.", AppRoles.Admin, AppRoles.User)))
-            .AddPolicy(Policies.TenantAdmin, p => p.RequireAuthenticatedUser().AddRequirements(
-                scope, member,
-                new AppRoleRequirement("This action requires the Admin role.", AppRoles.Admin)));
+            // /me only: the one endpoint a not-yet-provisioned user may call (it provisions them).
+            .AddPolicy(Policies.TenantSignIn, p => p.RequireAuthenticatedUser().AddRequirements(scope, member, anyRole))
+            .AddPolicy(Policies.TenantUser, p => p.RequireAuthenticatedUser().AddRequirements(scope, member, anyRole, active))
+            .AddPolicy(Policies.TenantAdmin, p => p.RequireAuthenticatedUser().AddRequirements(scope, member, adminRole, active));
 
+        services.AddHttpContextAccessor();
         services.AddSingleton<IAuthorizationHandler, ScopeHandler>();
         services.AddSingleton<IAuthorizationHandler, AppRoleHandler>();
         services.AddScoped<IAuthorizationHandler, TenantMemberHandler>();
+        // Last: it skips its database lookup when an earlier handler has already failed the request.
+        services.AddScoped<IAuthorizationHandler, ActiveTenantUserHandler>();
         services.AddSingleton<IAuthorizationMiddlewareResultHandler, ProblemDetailsAuthorizationResultHandler>();
 
         return services;
