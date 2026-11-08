@@ -28,6 +28,13 @@ public sealed class DevelopmentDataSeeder(
             await using var scope = scopeFactory.CreateAsyncScope();
             var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
 
+            if (string.IsNullOrWhiteSpace(configuration["Dev:DemoEntraTenantId"]))
+            {
+                logger.LogWarning(
+                    "Dev:DemoEntraTenantId is not configured; the demo tenant is linked to the all-zero placeholder, " +
+                    "so real tokens will get 403. Set it with: dotnet user-secrets set \"Dev:DemoEntraTenantId\" \"<entra-tenant-id>\" --project src/api/SaasDemo.Api");
+            }
+
             var entraTenantId = configuration.GetValue("Dev:DemoEntraTenantId", Guid.Empty);
             var demo = await db.Tenants.SingleOrDefaultAsync(t => t.Slug == DemoSlug, cancellationToken);
 
