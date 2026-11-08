@@ -42,5 +42,8 @@ public sealed class AppUser : ITenantOwned
 
     public void RecordLogin(DateTime utcNow) => LastLoginAtUtc = utcNow;
 
+    /// <summary>The token is the source of truth for roles; the stored role is a synced copy.</summary>
+    public void SyncRole(UserRole role) => Role = role;
+
     public void Deactivate() => IsActive = false;
 }

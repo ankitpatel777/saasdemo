@@ -14,4 +14,7 @@ public sealed class EfTenantStore(AppDbContext db) : ITenantStore
         var normalized = slug.ToLowerInvariant();
         return db.Tenants.AsNoTracking().SingleOrDefaultAsync(t => t.Slug == normalized, ct);
     }
+
+    public Task<Tenant?> GetByEntraTenantIdAsync(Guid entraTenantId, CancellationToken ct) =>
+        db.Tenants.AsNoTracking().SingleOrDefaultAsync(t => t.EntraTenantId == entraTenantId, ct);
 }

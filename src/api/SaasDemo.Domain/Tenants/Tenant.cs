@@ -26,4 +26,7 @@ public sealed class Tenant
     public Guid EntraTenantId { get; private set; }
     public bool IsActive { get; private set; }
     public DateTime CreatedAtUtc { get; private set; }
+
+    /// <summary>Links the tenant to a different Entra directory (used by the development seeder).</summary>
+    public void LinkEntraTenant(Guid entraTenantId) => EntraTenantId = entraTenantId;
 }
