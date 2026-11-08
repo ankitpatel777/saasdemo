@@ -5,7 +5,7 @@ public sealed class Tenant
 {
     public Tenant(Guid id, string slug, string name, Guid entraTenantId, bool isActive, DateTime createdAtUtc)
     {
-        if (!TenantSlug.IsValid(slug))
+        if (!TenantSlug.IsValid(slug) || TenantSlug.IsReserved(slug))
         {
             throw new ArgumentException($"'{slug}' is not a valid tenant slug.", nameof(slug));
         }
