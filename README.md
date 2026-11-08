@@ -4,8 +4,9 @@ A learning project: a **multi-tenant SaaS** on Azure, built with an ASP.NET Core
 (Clean Architecture) and an Angular SPA. Each customer organisation (tenant) signs in with
 its own Microsoft Entra ID and reaches the app at `/{tenant}/...`.
 
-> Status: skeleton only. The API exposes a health endpoint and the SPA calls it.
-> Authentication, the database and tenant features come in later PRs.
+> Status: the API exposes an anonymous health endpoint and tenant API routes require
+> an Entra bearer token whose tenant ID matches the configured tenant for the URL slug.
+> The database and tenant-owned features come in later PRs.
 
 ## Architecture
 
@@ -85,6 +86,7 @@ cd src/web && npm run build && npm test
 Committed config files contain **placeholders only**, because this repo is public.
 Real values live in Key Vault, App Service settings or user secrets, and are never committed.
 
-- `src/api/SaasDemo.Api/appsettings.json`: `AzureAd`, `ConnectionStrings`, `Cors:AllowedOrigins`
+- `src/api/SaasDemo.Api/appsettings.json`: `AzureAd`, `ConnectionStrings`, `Cors:AllowedOrigins`,
+  and `Tenants` (map each tenant URL slug to its Entra tenant ID GUID)
 - `src/web/src/environments/*.ts`: `apiBaseUrl` and MSAL placeholders
 - Application Insights turns on only when `APPLICATIONINSIGHTS_CONNECTION_STRING` is set.
